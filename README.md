@@ -1,3 +1,7 @@
+!!!!!!!!!!!!!OUTDATED README
+
+
+
 A Firefox extension that strips any page down to its article, summarizes it, and keeps a local library of everything you've read. Highlight passages, attach notes, and track your reading progress — all stored locally, no accounts, no data collection.
 
 ## Features
