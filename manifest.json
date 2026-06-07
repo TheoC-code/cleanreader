@@ -1,0 +1,31 @@
+{
+  "manifest_version": 2,
+  "name": "Reader",
+  "version": "1.0.0",
+  "description": "Strip the page down to the article — synopsis + clean text, dark mode.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "reader-ejcrisler@ejcrisler.local",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "browser_action": {
+    "default_title": "Reader",
+    "default_popup": "popup.html"
+  },
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    "reader.html",
+    "reader.js",
+    "reader.css",
+    "extractor.js",
+    "importers.js"
+  ]
+}
