@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* Theme palettes — kept in sync with reader.css so the popup matches the
+     reader's current look. popup.js applies the saved data-theme on open. */
+  :root {
+    color-scheme: dark;
+    --bg: #2a2d33;
+    --surface: #33363d;
+    --border: #4a4e57;
+    --fg: #ffffff;
+    --muted: #c5c8cf;
+    --accent: #ffffff;
+    --accent-2: #e6e6e6;
+    --on-accent: #0b0d12;
+  }
+  :root[data-theme="midnight"] {
+    color-scheme: dark;
+    --bg: #0f1419;
+    --surface: #161b22;
+    --border: #303a47;
+    --fg: #e6edf3;
+    --muted: #8b98a5;
+    --accent: #4493f8;
+    --accent-2: #6aa9f9;
+    --on-accent: #ffffff;
+  }
+  :root[data-theme="nord"] {
+    color-scheme: dark;
+    --bg: #2e3440;
+    --surface: #3b4252;
+    --border: #4c566a;
+    --fg: #eceff4;
+    --muted: #a7b0c0;
+    --accent: #88c0d0;
+    --accent-2: #8fbcbb;
+    --on-accent: #2e3440;
+  }
+  :root[data-theme="sepia"] {
+    color-scheme: light;
+    --bg: #f4ecd8;
+    --surface: #ece3cc;
+    --border: #cdbf98;
+    --fg: #3b3426;
+    --muted: #6b6047;
+    --accent: #9a6a3a;
+    --accent-2: #b07d4a;
+    --on-accent: #ffffff;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #ffffff;
+    --surface: #f4f5f7;
+    --border: #d2d5da;
+    --fg: #1f2328;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-2: #3b76ee;
+    --on-accent: #ffffff;
+  }
+  body {
+    margin: 0;
+    width: 220px;
+    padding: 10px;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px "Segoe UI", system-ui, sans-serif;
+  }
+  button {
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 13px "Segoe UI", system-ui, sans-serif;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: var(--accent-2); }
+  button:disabled {
+    background: var(--surface);
+    color: var(--muted);
+    cursor: default;
+  }
+  .status {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+    min-height: 0;
+  }
+  .status:empty { display: none; }
+</style>
+</head>
+<body>
+  <button id="run">Read this page</button>
+  <div class="status" id="status"></div>
+  <script src="extractor.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
