@@ -99,19 +99,16 @@
 </head>
 <body>
   <div id="progress" class="progress"></div>
-  <header class="topbar">
-    <span class="brand"><span class="brand-dot" aria-hidden="true"></span>  READER</span>
-  </header>
   <div class="layout">
     <aside class="library">
       <div class="library-inner">
         <div class="lib-head">
-          <h2>Library</h2>
-          <button id="collapse-sidebar" class="lib-collapse" type="button" title="Hide library" aria-label="Hide library"><span class="lib-collapse-ico">‹</span></button>
+          <span class="brand" title="Reader"><span class="brand-dot" aria-hidden="true"></span> READER</span>
+          <button id="collapse-sidebar" class="lib-collapse" type="button" data-tip="Hide library" aria-label="Hide library"><span class="lib-collapse-ico">‹</span></button>
         </div>
         <div class="lib-search-row">
           <input id="search" class="lib-search" type="search" placeholder="Search library…" autocomplete="off">
-          <button id="lib-filter-btn" class="lib-filter-btn" type="button" title="Filter by status" aria-label="Filter by status" aria-expanded="false"><span class="lib-filter-ico">▾</span></button>
+          <button id="lib-filter-btn" class="lib-filter-btn" type="button" data-tip="Filter by status" aria-label="Filter by status" aria-expanded="false"><span class="lib-filter-ico">▾</span></button>
         </div>
         <div id="library"></div>
         <div class="lib-actions">
@@ -126,7 +123,7 @@
 
   <div class="reveal-zone" aria-hidden="true"></div>
 
-  <button id="to-top" class="to-top" type="button" title="Back to top" aria-label="Back to top" hidden>↑</button>
+  <button id="to-top" class="to-top" type="button" data-tip="Back to top" aria-label="Back to top" hidden>↑</button>
 
   <div id="source-wrap" class="source-wrap" hidden>
     <a id="source" class="source" href="#" target="_blank" rel="noopener" aria-label="Open original"><span class="source-ico">↗</span></a>
@@ -134,16 +131,29 @@
   </div>
 
   <div class="dock" id="dock">
-  <button id="export" class="dock-btn" type="button" title="Export as Markdown" aria-label="Export as Markdown"><span class="dock-ico">⬇</span></button>
-  <button id="appearance" class="dock-btn" type="button" title="Settings" aria-label="Settings"><span class="dock-ico">⚙</span></button>
+  <button id="export" class="dock-btn" type="button" data-tip="Download (Markdown)" aria-label="Download as Markdown"><span class="dock-ico">⬇</span></button>
+  <button id="appearance" class="dock-btn" type="button" data-tip="Settings" aria-label="Settings"><span class="dock-ico">⚙</span></button>
   <div class="help" id="help">
     <div class="help-panel" role="dialog" aria-label="How to use Reader">
       <h3>How to use Reader</h3>
       <ul>
-        <li><b>Read a page</b> — on any article, click the Reader toolbar icon, then <i>Read this page</i>.</li>
-        <li><b>Library</b> — saved articles sit on the left.</li>
-        <li><b>Settings</b> — the <i>⚙</i> button changes theme, transition, font, size, width, sort, and sidebar mode.</li>
+        <li><b>Find the icon</b> — Reader lives in your browser toolbar. If you don't see the <i>◐</i> icon, click the puzzle-piece (Extensions) button and <i>pin</i> Reader so it's always one click away.</li>
+        <li><b>Read a page</b> — on any article, click the Reader toolbar icon to open the popup, then press <i>Read this page</i>. The clean version opens here and is saved to your library.</li>
+        <li><b>Import files</b> — <i>Import file</i> in the sidebar reads PDF and EPUB files from your computer as articles.</li>
+        <li><b>Library</b> — saved articles sit in the sidebar on the left. Click one to open it, <i>📌</i> to pin it to the top, <i>✕</i> to delete, <i>Clear all</i> to wipe everything.</li>
+        <li><b>Select</b> — <i>Select</i> turns the list into checkboxes; click anywhere on an item to choose it, then mark read, export, or delete several at once.</li>
+        <li><b>Search & filter</b> — the box at the top filters by title, synopsis, or URL. The <i>▾</i> button beside it filters by <i>Unread</i> or <i>Completed</i> (press <i>Save</i> to apply).</li>
+        <li><b>Status</b> — each item shows <i>Unread</i> (red) or <i>Read</i> (green) once you reach the end. Opening a fresh tab picks up wherever you last left off.</li>
+        <li><b>Settings</b> — the <i>⚙</i> button changes theme, the theme-change animation, reading font, text size, line height, letter spacing, width, library sort, and sidebar mode. <i>Reset settings</i> at the bottom restores the defaults.</li>
+        <li><b>Sidebar modes</b> — <i>Pinned</i> (always open), <i>Hover</i> / <i>Reveal</i> (slide in from the left edge), or <i>Hidden</i> (a small handle on the left brings it back). The <i>‹</i> in the header also hides it.</li>
+        <li><b>Highlight & notes</b> — select any text, then pick a colour. Choose <i>Note</i> (or click an existing highlight) to attach a note; the <i>✎</i> dock button reviews them all.</li>
+        <li><b>Focus mode</b> — <i>⚙ → Reading aids</i> (or <i>f</i>) dims everything but a window of lines around what you're reading; size it with <i>Focus window</i>.</li>
+        <li><b>Read aloud</b> — <i>⚙ → Read article aloud</i> (or <i>r</i>) speaks from wherever you are. While it plays, click any paragraph to jump there.</li>
+        <li><b>Download & original</b> — the <i>⬇</i> dock button saves the article (with highlights) as Markdown; the <i>↗</i> button beside the sidebar opens the original source.</li>
+        <li><b>Back to top</b> — the <i>↑</i> beside the READER title in the sidebar (and <i>g g</i>) jumps to the top; the bar across the very top shows your progress.</li>
+        <li><b>Shortcuts & tips</b> — press <i>?</i> for every keyboard shortcut, and hover any icon button to see what it does.</li>
       </ul>
+      <button id="replay-tour" class="onb-btn" type="button">Replay the welcome tour</button>
     </div>
     <button class="help-btn dock-btn" type="button" aria-label="Help"><span class="dock-ico">?</span></button>
   </div>
