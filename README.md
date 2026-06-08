@@ -117,9 +117,3 @@ It validates that every required file is present and produces `reader.xpi`. Bump
 - Imported files are parsed with `DOMParser`, which does not execute scripts; only text is extracted.
 - The "open original" link only follows `http(s)` URLs; anything else is neutralised.
 - Manifest V2's default content security policy applies to the extension pages — no inline scripts and no remote code.
-
----
-
-## License
-
-Personal project — use at your own discretion.
