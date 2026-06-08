@@ -7,11 +7,18 @@ sourceEl.addEventListener("click", (e) => { if (sourceEl.classList.contains("no-
 // The source link is an icon-only circular button (bottom-left of the reader);
 // hovering it pops a styled tooltip with the full URL / import name (same
 // affordance as the help menu) rather than relying on the native title attr.
+// Only ever allow real web links through to the href — anything that isn't
+// http(s) (e.g. a tampered javascript:/data: URL in stored history) is
+// neutralised to "#" so clicking it can never execute code.
+function safeHref(href) {
+  return (typeof href === "string" && /^https?:\/\//i.test(href)) ? href : "#";
+}
+
 function setSource(label, href, noLink) {
   if (label) {
     sourceWrap.hidden = false;
     sourceEl.setAttribute("aria-label", label);
-    sourceEl.href = href || "#";
+    sourceEl.href = safeHref(href);
     sourceEl.classList.toggle("no-link", !!noLink);
     sourcePopup.textContent = label;
   } else {
@@ -84,6 +91,8 @@ const LINE_HEIGHT_STEP = 0.1;
 const LETTER_SPACING_MIN = 0;
 const LETTER_SPACING_MAX = 1.5;
 const LETTER_SPACING_STEP = 0.25;
+const FOCUS_LINES_MIN = 1;
+const FOCUS_LINES_MAX = 9;
 const DEFAULT_SETTINGS = {
   theme: "charcoal",
   fontSize: 17,
@@ -95,6 +104,7 @@ const DEFAULT_SETTINGS = {
   sort: "recent",
   transition: "clean",
   focusMode: false,
+  focusLines: 3,
   hlLabels: {},
 };
 let settings = { ...DEFAULT_SETTINGS };
@@ -121,8 +131,23 @@ function applySettings() {
   else clearFocusHighlight();
 }
 
-/* ---------- Focus / typewriter mode ---------- */
-// Dims every block except the one nearest the viewport's vertical centre.
+/* ---------- Focus mode (context window) ---------- */
+// Keeps a small window of consecutive blocks bright (centred on whatever is
+// nearest the viewport's vertical centre) and dims the rest. A window rather
+// than a single block so short, separate dialogue lines aren't skipped over.
+
+// Index (in document order) of the [data-block] nearest the viewport centre.
+function centreBlockIndex(blocks) {
+  const centre = window.innerHeight / 2;
+  let bestIdx = 0, bestDist = Infinity;
+  blocks.forEach((b, idx) => {
+    const r = b.getBoundingClientRect();
+    const mid = r.top + r.height / 2;
+    const d = Math.abs(mid - centre);
+    if (d < bestDist) { bestDist = d; bestIdx = idx; }
+  });
+  return bestIdx;
+}
 
 let focusRaf = null;
 function updateFocusHighlight() {
@@ -132,15 +157,12 @@ function updateFocusHighlight() {
     focusRaf = null;
     const blocks = articleEl.querySelectorAll("[data-block]");
     if (!blocks.length) return;
-    const centre = window.innerHeight / 2;
-    let best = null, bestDist = Infinity;
-    for (const b of blocks) {
-      const r = b.getBoundingClientRect();
-      const mid = r.top + r.height / 2;
-      const d = Math.abs(mid - centre);
-      if (d < bestDist) { bestDist = d; best = b; }
-    }
-    for (const b of blocks) b.classList.toggle("in-focus", b === best);
+    const centreIdx = centreBlockIndex(blocks);
+    const span = Math.max(1, settings.focusLines ?? DEFAULT_SETTINGS.focusLines);
+    const half = Math.floor((span - 1) / 2);
+    const lo = centreIdx - half;
+    const hi = lo + span - 1;
+    blocks.forEach((b, idx) => b.classList.toggle("in-focus", idx >= lo && idx <= hi));
   });
 }
 
@@ -184,11 +206,15 @@ function clear(el) {
 
 function el(tag, opts = {}, children = []) {
   const node = document.createElement(tag);
-  if (opts.class) node.className = opts.class;
-  if (opts.text != null) node.textContent = opts.text;
-  if (opts.title) node.title = opts.title;
-  if (opts.onclick) node.addEventListener("click", opts.onclick);
-  if (opts.style) node.style.cssText = opts.style;
+  for (const [k, v] of Object.entries(opts)) {
+    if (v == null) continue;
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k === "onclick") node.addEventListener("click", v);
+    else if (k === "style") node.style.cssText = v;
+    // Everything else (title, type, role, aria-*, data-*, …) is a real attribute.
+    else node.setAttribute(k, v);
+  }
   for (const c of children) if (c) node.appendChild(c);
   return node;
 }
@@ -270,10 +296,15 @@ function renderLibrary() {
           el("span", { class: "lib-tag" + (t === tagFilter ? " on" : ""), text: t })))
       : null;
 
+    // In select mode the whole row toggles selection; otherwise it opens the
+    // article. Either way the entire item (not just a checkbox) is the target.
     const body = el("button", {
       class: "body",
       style: "background:transparent;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0;width:100%;min-width:0;",
-      onclick: () => renderArticle(entry),
+      onclick: () => {
+        if (selectMode) toggleSelected(entry.url);
+        else renderArticle(entry);
+      },
     }, [topRow, titleSpan, tagRow, meta]);
 
     const pin = el("button", {
@@ -297,12 +328,12 @@ function renderLibrary() {
       checkbox.className = "lib-select-box";
       checkbox.checked = selected.has(entry.url);
       checkbox.title = "Select for bulk actions";
+      // The checkbox is just a visual handle now — clicking anywhere on the row
+      // toggles selection (handled on the body button), so keep them in sync
+      // and stop the click from double-firing the row handler.
       checkbox.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (checkbox.checked) selected.add(entry.url);
-        else selected.delete(entry.url);
-        renderBulkBar();
-        row.classList.toggle("selected", checkbox.checked);
+        toggleSelected(entry.url);
       });
     }
 
@@ -312,10 +343,27 @@ function renderLibrary() {
         + (entry.pinned ? " pinned" : "")
         + (selectMode && selected.has(entry.url) ? " selected" : "")
         + (selectMode ? " selecting" : ""),
+      "data-url": entry.url,
     }, [checkbox, body, pin, del]);
 
     libraryEl.appendChild(row);
   }
+}
+
+// Toggle whether an article is in the bulk-action selection. Updates ONLY the
+// affected row in place (no full re-render) so the other rows don't replay
+// their entrance animations.
+function toggleSelected(url) {
+  const nowSelected = !selected.has(url);
+  if (nowSelected) selected.add(url);
+  else selected.delete(url);
+  const row = libraryEl.querySelector(`.lib-item[data-url="${CSS.escape(url)}"]`);
+  if (row) {
+    row.classList.toggle("selected", nowSelected);
+    const cb = row.querySelector(".lib-select-box");
+    if (cb) cb.checked = nowSelected;
+  }
+  renderBulkBar();
 }
 
 /* ---------- Reading stats / streaks ---------- */
@@ -873,6 +921,7 @@ function stopSpeech(refresh = true) {
   ttsIndex = -1;
   ttsUrl = null;
   clearTtsHighlight();
+  document.body.classList.remove("tts-on");
   if (was && refresh) renderAppearancePanel();
 }
 
@@ -893,7 +942,11 @@ function speakNext() {
   window.speechSynthesis.speak(utt);
 }
 
-function startSpeech() {
+// Start (or restart) reading aloud. With no argument it begins at the block
+// nearest the viewport centre — i.e. wherever you're currently reading — so it
+// no longer always restarts from the very top. Pass a block index to begin at
+// a specific paragraph (used by click-to-jump).
+function startSpeech(startBlock) {
   if (!ttsSupported()) return;
   const entry = liveEntry();
   if (!entry) return;
@@ -903,7 +956,19 @@ function startSpeech() {
     .filter((b) => b.text);
   if (!ttsQueue.length) return;
   ttsUrl = entry.url;
-  ttsIndex = -1;
+
+  // Resolve the requested start block (explicit arg, else viewport centre) to a
+  // position within the spoken queue — the first queued block at/after it.
+  let fromBlock = startBlock;
+  if (typeof fromBlock !== "number") {
+    const blocks = articleEl.querySelectorAll("[data-block]");
+    fromBlock = blocks.length ? Number(blocks[centreBlockIndex(blocks)].dataset.block) : 0;
+  }
+  let qpos = ttsQueue.findIndex((b) => b.i >= fromBlock);
+  if (qpos < 0) qpos = 0;
+  ttsIndex = qpos - 1; // speakNext() increments before speaking
+
+  document.body.classList.add("tts-on");
   speakNext();
   renderAppearancePanel();
 }
@@ -935,11 +1000,16 @@ async function deleteEntry(url) {
 /* ---------- Bulk select & actions ---------- */
 
 const libActionsEl = document.querySelector(".lib-actions");
-const selectToggleBtn = el("button", { class: "lib-select-toggle", text: "Select", onclick: toggleSelectMode });
+const selectToggleBtn = el("button", {
+  class: "lib-select-toggle",
+  text: "Select",
+  title: "Select multiple articles to mark read, export, or delete them at once",
+  onclick: toggleSelectMode,
+});
 const importBtn = el("button", {
   class: "lib-select-toggle lib-import",
-  text: "Import",
-  title: "Import a .pdf or .epub file as an article",
+  text: "Import file",
+  title: "Import a PDF or EPUB file from your computer as a readable article",
   onclick: () => importFileInput.click(),
 });
 const libActionsLeft = el("div", { class: "lib-actions-left" }, [importBtn, selectToggleBtn]);
@@ -1378,7 +1448,8 @@ function renderHighlightsView() {
 
 const highlightsBtn = el("button", {
   class: "dock-btn",
-  title: "Highlights & notes",
+  "data-tip": "Highlights & notes",
+  "aria-label": "Highlights & notes",
   onclick: () => renderHighlightsView(),
 }, [el("span", { class: "dock-ico", text: "✎" })]);
 {
@@ -1387,6 +1458,51 @@ const highlightsBtn = el("button", {
   if (dockEl && helpDiv) dockEl.insertBefore(highlightsBtn, helpDiv);
 }
 
+/* ---------- Reusable hover tooltip ---------- */
+// One floating tooltip, shared by every element carrying a `data-tip`
+// attribute (dock buttons, the filter/collapse/back-to-top controls, …).
+// It's a single fixed element positioned over the hovered target, so it never
+// gets dragged around by the dock's hover-scale transforms.
+const uiTip = el("div", { class: "ui-tip", role: "tooltip" });
+document.body.appendChild(uiTip);
+let uiTipTarget = null;
+
+function showUiTip(target) {
+  const text = target.getAttribute("data-tip");
+  if (!text) return;
+  uiTip.textContent = text;
+  uiTip.classList.add("show");
+  const r = target.getBoundingClientRect();
+  const tw = uiTip.offsetWidth;
+  const th = uiTip.offsetHeight;
+  let left = r.left + r.width / 2 - tw / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+  let top = r.top - th - 8;
+  if (top < 8) top = r.bottom + 8; // flip below if it would clip the top edge
+  uiTip.style.left = Math.round(left) + "px";
+  uiTip.style.top = Math.round(top) + "px";
+}
+
+function hideUiTip() {
+  uiTipTarget = null;
+  uiTip.classList.remove("show");
+}
+
+document.addEventListener("mouseover", (e) => {
+  const t = e.target.closest("[data-tip]");
+  if (!t || t === uiTipTarget) return;
+  uiTipTarget = t;
+  showUiTip(t);
+});
+document.addEventListener("mouseout", (e) => {
+  if (!uiTipTarget) return;
+  const t = e.target.closest("[data-tip]");
+  if (t && t === uiTipTarget && (!e.relatedTarget || !t.contains(e.relatedTarget))) hideUiTip();
+});
+// Don't let a stale tip linger over a button that was just clicked/scrolled.
+document.addEventListener("click", hideUiTip, true);
+window.addEventListener("scroll", hideUiTip, { passive: true });
+
 articleEl.addEventListener("mouseup", () => setTimeout(onSelection, 0));
 
 articleEl.addEventListener("click", (e) => {
@@ -1394,6 +1510,15 @@ articleEl.addEventListener("click", (e) => {
   if (span) {
     e.stopPropagation();
     openNotePopover(span.dataset.id, span.getBoundingClientRect());
+    return;
+  }
+  // While reading aloud, clicking a paragraph jumps playback to it — but not
+  // when the click is the tail of a text selection (that's the highlight flow).
+  if (speechActive()) {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) return;
+    const block = e.target.closest("[data-block]");
+    if (block) startSpeech(Number(block.dataset.block));
   }
 });
 
@@ -1409,8 +1534,8 @@ articleEl.addEventListener("mouseout", (e) => {
 document.addEventListener("mousedown", (e) => {
   if (!selBar.hidden && !selBar.contains(e.target)) hideSelBar();
   if (!notePop.hidden && !notePop.contains(e.target) && !e.target.closest(".hl")) closeNotePopover();
-  if (!appearancePanel.hidden && !appearancePanel.contains(e.target) && !appearanceBtn.contains(e.target)) {
-    appearancePanel.hidden = true;
+  if (appearancePanel.classList.contains("open") && !appearancePanel.contains(e.target) && !appearanceBtn.contains(e.target)) {
+    closeAppearance();
   }
 });
 
@@ -1420,8 +1545,8 @@ const SHORTCUTS = [
   { keys: "j / k", desc: "Scroll down / up" },
   { keys: "n / p", desc: "Next / previous article in the library" },
   { keys: "/", desc: "Focus the search box" },
-  { keys: "f", desc: "Toggle focus (typewriter) mode" },
-  { keys: "r", desc: "Read the article aloud / stop" },
+  { keys: "f", desc: "Toggle focus mode (dim all but a window of lines)" },
+  { keys: "r", desc: "Read aloud from where you are / stop" },
   { keys: "t", desc: "Toggle the table of contents" },
   { keys: "g g", desc: "Jump to the top of the article" },
   { keys: "Shift+G", desc: "Jump to the end of the article" },
@@ -1477,7 +1602,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     hideSelBar();
     closeNotePopover();
-    appearancePanel.hidden = true;
+    closeAppearance();
     shortcutsPanel.hidden = true;
     return;
   }
@@ -1553,7 +1678,6 @@ searchEl.addEventListener("input", () => {
 
 const appearanceBtn = document.getElementById("appearance");
 const appearancePanel = el("div", { class: "appearance-panel" });
-appearancePanel.hidden = true;
 document.body.appendChild(appearancePanel);
 
 function apSection(label, node) {
@@ -1625,16 +1749,22 @@ function renderAppearancePanel() {
     el("button", {
       class: "ap-btn" + (settings.focusMode ? " active" : ""),
       text: settings.focusMode ? "Focus mode: On" : "Focus mode: Off",
-      title: "Dim everything but the paragraph you're reading",
+      title: "Dim everything but the lines you're reading",
       onclick: toggleFocusMode,
     }),
     ttsSupported() ? el("button", {
       class: "ap-btn" + (speechActive() ? " active" : ""),
       text: speechActive() ? "⏹ Stop reading aloud" : "🔊 Read article aloud",
-      title: "Listen to this article with text-to-speech",
-      onclick: toggleSpeech,
+      title: "Read aloud from where you are — click any paragraph while it plays to jump there",
+      onclick: () => toggleSpeech(),
     }) : null,
   ])));
+
+  appearancePanel.appendChild(apSection(`Focus window — ${settings.focusLines ?? DEFAULT_SETTINGS.focusLines} lines`,
+    el("div", { class: "ap-row" }, [
+      el("button", { class: "ap-btn", text: "−", title: "Fewer lines in focus", onclick: () => changeFocusLines(-1) }),
+      el("button", { class: "ap-btn", text: "+", title: "More lines in focus", onclick: () => changeFocusLines(1) }),
+    ])));
 
   appearancePanel.appendChild(apSection("Highlight colours mean…", buildHlLegend()));
 
@@ -1679,6 +1809,14 @@ function changeLetterSpacing(delta) {
   const cur = settings.letterSpacing ?? 0;
   settings.letterSpacing = Math.round(Math.max(LETTER_SPACING_MIN, Math.min(LETTER_SPACING_MAX, cur + delta)) * 100) / 100;
   saveSettings();
+  renderAppearancePanel();
+}
+
+function changeFocusLines(delta) {
+  const cur = settings.focusLines ?? DEFAULT_SETTINGS.focusLines;
+  settings.focusLines = Math.max(FOCUS_LINES_MIN, Math.min(FOCUS_LINES_MAX, cur + delta));
+  saveSettings();
+  if (settings.focusMode) updateFocusHighlight();
   renderAppearancePanel();
 }
 
@@ -1826,10 +1964,16 @@ function applyThemeWithReveal(themeId) {
   }).catch(() => {});
 }
 
+function closeAppearance() {
+  appearancePanel.classList.remove("open");
+}
+
 function toggleAppearance() {
-  if (!appearancePanel.hidden) { appearancePanel.hidden = true; return; }
+  if (appearancePanel.classList.contains("open")) { closeAppearance(); return; }
   renderAppearancePanel();
-  appearancePanel.hidden = false;
+  // The panel is never display:none, so it's measurable while still invisible —
+  // position it first, then add .open on the next frame to trigger the
+  // open animation from the correct spot.
   const r = appearanceBtn.getBoundingClientRect();
   const pw = appearancePanel.offsetWidth;
   const ph = appearancePanel.offsetHeight;
@@ -1838,6 +1982,7 @@ function toggleAppearance() {
   if (top < 8) top = Math.max(8, window.innerHeight - ph - 8);
   appearancePanel.style.left = left + "px";
   appearancePanel.style.top = top + "px";
+  requestAnimationFrame(() => appearancePanel.classList.add("open"));
 }
 
 appearanceBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleAppearance(); });
@@ -1925,13 +2070,161 @@ sidebarAside.addEventListener("mouseleave", () => {
   document.body.classList.remove("reveal-open");
 });
 
+/* ---------- First-run onboarding walkthrough ---------- */
+// Shown once, the first time the reader is opened after install. A clean,
+// multi-step tour with Back/Next that finishes by letting the reader pick
+// their look. The `onboarded` flag in storage keeps it from showing again.
+const ONB_STEPS = [
+  {
+    icon: "◐",
+    title: "Welcome to Reader",
+    lines: [
+      "Reader strips any web article down to just the words — no ads, no banners, no clutter.",
+      "Your library, highlights, and settings all live on your device. Nothing is ever sent to a server.",
+    ],
+  },
+  {
+    icon: "🧩",
+    title: "Opening Reader",
+    lines: [
+      "Reader lives in your browser's toolbar. Click its icon to open the popup.",
+      "Don't see it? Click the puzzle-piece (Extensions) button in the toolbar and pin Reader so it's always one click away.",
+      "On any article, open the popup and press “Read this page”. The clean version opens here and is saved to your library.",
+    ],
+  },
+  {
+    icon: "📚",
+    title: "Your library",
+    lines: [
+      "Saved articles sit in the sidebar on the left. Click one to open it — reopening picks up exactly where you left off.",
+      "Search or filter by status, pin favourites to the top, or hit Select to mark, export, or delete several at once.",
+      "Import also lets you read PDF and EPUB files straight from your computer.",
+    ],
+  },
+  {
+    icon: "✎",
+    title: "Reading tools",
+    lines: [
+      "Select any text to highlight it and attach a note.",
+      "Focus mode (f) dims everything but the lines you're reading. Read aloud (r) speaks the article from wherever you are.",
+      "Press ? at any time for the full list of keyboard shortcuts.",
+    ],
+  },
+];
+
+function showOnboarding() {
+  let step = 0;
+  const TOTAL = ONB_STEPS.length + 1; // content steps + the settings step
+
+  const overlay = el("div", { class: "onb-overlay" });
+  const card = el("div", { class: "onb-card", role: "dialog", "aria-label": "Welcome to Reader" });
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("show"));
+
+  function finish() {
+    overlay.classList.remove("show");
+    browser.storage.local.set({ onboarded: true });
+    setTimeout(() => overlay.remove(), 320);
+  }
+
+  // The final step: a compact, live settings picker (theme/font/size/sidebar).
+  function buildSettingsStep() {
+    const themeRow = el("div", { class: "ap-themes" });
+    const draw = () => render(); // re-render whole step so active states refresh
+    for (const t of THEMES) {
+      themeRow.appendChild(el("button", {
+        class: "ap-theme" + (settings.theme === t.id ? " active" : ""),
+        title: t.name,
+        onclick: () => { applyThemeWithReveal(t.id); draw(); },
+      }, [
+        el("span", { class: "swatch-top", style: `background:${t.bg}` }),
+        el("span", { class: "swatch-bot", style: `background:${t.accent}` }),
+      ]));
+    }
+    const fontRow = el("div", { class: "ap-row" }, FONTS.map((o) =>
+      el("button", {
+        class: "ap-btn" + (settings.font === o.id ? " active" : ""),
+        text: o.name,
+        onclick: () => { settings.font = o.id; saveSettings(); draw(); },
+      })));
+    const sizeRow = el("div", { class: "ap-row" }, [
+      el("button", { class: "ap-btn", text: "A−", onclick: () => { changeFont(-1); draw(); } }),
+      el("button", { class: "ap-btn", text: "A+", onclick: () => { changeFont(1); draw(); } }),
+    ]);
+    const sidebarRow = el("div", { class: "ap-row" }, SIDEBAR_MODES.map((o) =>
+      el("button", {
+        class: "ap-btn" + (settings.sidebar === o.id ? " active" : ""),
+        text: o.name,
+        onclick: () => { settings.sidebar = o.id; saveSettings(); draw(); },
+      })));
+
+    return el("div", { class: "onb-step onb-settings" }, [
+      el("div", { class: "onb-icon", text: "🎨" }),
+      el("h2", { class: "onb-title", text: "Make it yours" }),
+      el("p", { class: "onb-sub", text: "Pick a look to start with — you can change all of this later from the ⚙ button." }),
+      el("div", { class: "onb-set-group" }, [el("div", { class: "ap-label", text: `Text size — ${settings.fontSize}px` }), sizeRow]),
+      el("div", { class: "onb-set-group" }, [el("div", { class: "ap-label", text: "Theme" }), themeRow]),
+      el("div", { class: "onb-set-group" }, [el("div", { class: "ap-label", text: "Reading font" }), fontRow]),
+      el("div", { class: "onb-set-group" }, [el("div", { class: "ap-label", text: "Sidebar" }), sidebarRow]),
+    ]);
+  }
+
+  function render() {
+    clear(card);
+    const isSettings = step === ONB_STEPS.length;
+
+    const dots = el("div", { class: "onb-dots" });
+    for (let i = 0; i < TOTAL; i++) {
+      dots.appendChild(el("span", { class: "onb-dot" + (i === step ? " on" : (i < step ? " done" : "")) }));
+    }
+    const skip = el("button", { class: "onb-skip", text: "Skip tour", onclick: finish });
+    card.appendChild(el("div", { class: "onb-head" }, [dots, skip]));
+
+    if (isSettings) {
+      card.appendChild(buildSettingsStep());
+    } else {
+      const s = ONB_STEPS[step];
+      card.appendChild(el("div", { class: "onb-step" }, [
+        el("div", { class: "onb-icon", text: s.icon }),
+        el("h2", { class: "onb-title", text: s.title }),
+        el("div", { class: "onb-lines" }, s.lines.map((t) => el("p", { text: t }))),
+      ]));
+    }
+
+    const back = el("button", {
+      class: "onb-btn onb-back",
+      text: "Back",
+      onclick: () => { if (step > 0) { step--; render(); } },
+    });
+    if (step === 0) back.disabled = true;
+    const next = el("button", {
+      class: "onb-btn onb-next",
+      text: isSettings ? "Finish" : "Next",
+      onclick: () => { if (isSettings) finish(); else { step++; render(); } },
+    });
+    card.appendChild(el("div", { class: "onb-foot" }, [back, next]));
+  }
+
+  render();
+}
+
+// "Replay the welcome tour" button inside the help panel.
+{
+  const replayBtn = document.getElementById("replay-tour");
+  if (replayBtn) replayBtn.addEventListener("click", () => {
+    if (!document.querySelector(".onb-overlay")) showOnboarding();
+  });
+}
+
 async function init() {
-  const data = await browser.storage.local.get(["pending", "history", "settings", "stats"]);
+  const data = await browser.storage.local.get(["pending", "history", "settings", "stats", "onboarded"]);
   settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
   applySettings();
   history = Array.isArray(data.history) ? data.history : [];
   stats = { days: [], total: 0, ...(data.stats || {}) };
   renderStreak();
+  if (!data.onboarded) showOnboarding();
   const pending = data.pending;
 
   if (pending && pending.blocks && pending.blocks.length) {
